@@ -1,0 +1,293 @@
+<html>
+<head>
+<title></title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+body{}
+</style>
+</head>    
+<body>
+<script src="astro.js"></script>
+<canvas id="canvas" width=1435 height=567 style="border:solid"></canvas>
+offset: <input oninput="redraw()" type="range" min="1000" max="3000" value="1985" class="slider" style="width:100%;" id="sliderOffset"><br>
+Sacle:<input oninput="redraw()" type="range" min="1" max="100" value="50" class="slider" style="width:100%;" id="sliderScale"><br>
+<div id="map" style="height: 500;"></div>
+<script>
+const tr=Math.PI/180;
+
+const c = document.getElementById("canvas");
+const w=document.getElementById("canvas").width;
+const h=document.getElementById("canvas").height;
+const ctx = c.getContext("2d");
+const i=new Image();
+let xScale=.5;
+let xOffset=1985;
+let source=[38.26434566713635, -85.73826670140329];
+//let source=[38.26434566713635, -85.73826670140329];
+
+setBackground();
+
+function redraw(){
+    xOffset=document.getElementById("sliderOffset").value;
+    xScale=document.getElementById("sliderScale").value/100.0;
+    console.log(xOffset,xScale);
+    drawChart();
+}
+
+function drawLineOnMap(p1,p2, color){
+    if(color != ""){
+        color="#ff0000";
+    }
+    let line=new google.maps.Polyline({
+        path: [
+            {lat: p1[0], lng: p1[1]},
+            {lat: p2[0], lng: p2[1]}
+        ],
+        strokeWeight: 1,
+        strokeColor: "#ff00FF",
+        map: map
+    });
+}
+
+function drawKnownPoints(){
+    map.setCenter({lat: 38.26460039476669, lng:-85.73830571535632});
+    map.setZoom(15);
+    map.setMapTypeId('satellite');
+    let p=[ 
+        [38.26603158352104, -85.74381018477541],
+        [38.26619163322243, -85.74341321784121],
+        [38.26416992687699, -85.74273730116946],
+        [38.26432998068027, -85.74231887656313],
+        [38.26226610196178, -85.74164295989138],
+        [38.26241773586336, -85.74125672179323],
+        [38.25488620291862, -85.757242687522],
+    ];
+    let west = [38.26460039476669, -85.75];
+
+    drawLineOnMap(source,west);
+
+    ctx.strokeStyle="rgba(0,255,0,1)";
+
+    for(let i=0;i<p.length;i++){
+        drawLineOnMap(source,p[i]);
+
+        let adj=p[i][1]-source[1];
+        let opp=p[i][0]-source[0];
+        let ang=Math.atan2(opp,adj);
+        ang=(2*Math.PI-ang +Math.PI/2)%(2*Math.PI);
+
+        plotPoint([ang,0]);
+    }
+}
+
+function clearCanvas(){
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);    
+}
+
+function drawOther(){
+    ctx.strokeStyle="red";
+    plotPoint([(291+5.0/60.0+ 36.0/3600.0)*tr,(8+ 33/60.0 +27.6/3600.0)*tr])
+    plotPoint([(280 + 43/60.0 + 3.6/3600.0)*tr,(+27+ 54/60.0 + 12.7/3600.0)*tr])
+
+}
+
+function drawChart(){
+    ctx.strokeStyle="white";
+    clearCanvas();
+
+    ctx.drawImage(i,0,0);
+    run();
+    //drawOther();
+    //drawGrid();
+    //drawKnownPoints();
+}
+
+function setBackground(){
+    i.src="20210604_211808-ds.jpg";
+
+    i.onload = () => {
+        drawChart();
+    }
+}
+
+function drawGrid(){
+    ctx.strokeStyle="rgba(255,255,255,.1)";
+    ctx.beginPath();
+    ctx.fillStyle="white";
+    for(let i=-90;i<90;i+=5){
+        const y=mapAltAzToScreen([0,i*Math.PI/180.0])[1];
+        ctx.moveTo(0,y);
+        ctx.lineTo(w,y);
+        ctx.fillText(i,2,y-2);
+    }
+
+    for(let i=0;i<360;i+=5){
+        const x=mapAltAzToScreen([i*Math.PI/180.0],0)[0];
+        ctx.moveTo(x,0);
+        ctx.lineTo(x,h);
+        ctx.fillText(i,x+2,h-10);
+    }
+    ctx.stroke();
+}
+
+function mapAltAzToScreen(p){
+    const scale=5.45;
+    const a=new Array();
+    a[0]=p[0]/(2*Math.PI)*w*scale*xScale-xOffset;
+    a[1]=h-p[1]/(2*Math.PI)*h*scale-160;
+
+    return a;
+}
+
+function plotPoint(p){
+
+    p=mapAltAzToScreen(p);
+
+    ctx.beginPath();
+    ctx.arc(p[0],p[1], 1, 0, 2 * Math.PI);
+    ctx.stroke();
+}
+
+function getVenusAltAzAtSunset(jd){
+    const lon=274.236400*tr;
+    const lat=38.2464000*tr;
+
+    let sun=getSun(jd);
+    let sunradec=astro.xyzToRaDec(sun);
+
+    let sunrst=astro.getRiseSet(jd,lat,-lon,sunradec[0],sunradec[1]); //Negate longitude for Meeus algorithms.
+    let sunset=(sunrst[2]+12.25)/24+jd;
+
+    if(Math.floor(jd)!=Math.floor(sunset)){
+        sunset-=1;
+    }
+
+    earth=getPlanet(sunset,2);
+    let venus=getPlanet(sunset,1);
+    venus=astro.sub(venus,earth);
+
+    const venusrd=astro.xyzToRaDec(venus);
+    const venusaa=astro.raDecToAltAz(venusrd[0],venusrd[1],lat,lon,sunset);
+    return venusaa;
+
+}
+
+months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function drawLabel(jd,aa){
+    console.log(jd);
+    ctx.fillStyle="white";
+    ctx.font = "20px Georgia";
+    const p=mapAltAzToScreen(aa);
+
+    const d=astro.julainDateToGregorian(jd);
+
+    const s=months[d[1]-1]+" "+Math.floor(d[2]);
+
+    if(jd<2459347){
+        ctx.fillText(s,p[0],p[1]+20);
+    } else if (jd<2459506){
+        ctx.fillText(s,p[0],p[1]-10);
+    } else if (jd==2459506){
+        ctx.fillText(s,p[0],p[1]+22);
+    } else if(jd==2459546){
+        ctx.fillText(s,p[0],p[1]-10);
+    } else {
+        ctx.fillText(s,p[0]+5,p[1]);
+    }
+}
+
+function run(){
+    const jd=astro.gregorianDateToJulianDate(2021,04,1,12,0,0);
+
+    for(let i=0;i<285;i++){
+        let aa=getVenusAltAzAtSunset(jd+i);
+        //console.log(jd+i,aa[0]*180.0/Math.PI,aa[1]*180.0/Math.PI);
+        //if(jd+i==2459369){
+        //    ctx.strokeStyle="blue";
+        //} else {
+            ctx.strokeStyle="white";
+        //}
+        if(i%40==0){
+            ctx.strokeStyle="red";
+            drawLabel(jd+i,aa);
+        } else {
+
+        }
+        plotPoint(aa);
+    }
+
+}
+
+function getSun(jd){
+    let earth=getPlanet(jd,2);
+    let sun=new Array();
+    sun[0]=0;
+    sun[1]=0;
+    sun[2]=0;
+
+    sun=astro.sub(sun,earth);
+
+    return sun;
+}
+
+function getPlanet(jd,planet){
+    let extraterms=[];
+    if(planet>3){
+        //extraterms=astro.extraTerms[planet-4];
+    }
+    return astro.computePlanetPosition(jd,astro.data1800to2050[planet][0],astro.data1800to2050[planet][1],extraterms);
+}
+
+function formatTime(h){
+
+    const tz=(new Date().getTimezoneOffset())/60.0;
+
+    let t=h-tz;
+    if(t>=24){t-=24;}
+    if(t<0){t+=24;}
+
+
+    let hours=Math.floor(t);
+    t-=hours;
+    t*=60;
+    let min=Math.floor(t);
+    t-=min;
+    t*=60;
+    let sec=Math.floor(t);
+
+    if(hours<10){hours="0"+hours;}
+    if(min<10){min="0"+min;}
+    if(sec<10){sec="0"+sec;}
+
+    return hours+":"+min+":"+sec;
+
+}
+let map;
+    
+function initMap() {
+    map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: -34.397, lng: 150.644 },
+    zoom: 8,
+    });
+
+    map.addListener("click", (e) =>{
+        source=[e.latLng.lat(),e.latLng.lng()];
+        console.log(e.latLng.lat(),e.latLng.lng());
+        redraw();
+    });
+
+}
+
+</script>
+<script>
+    
+    
+</script>
+<script
+src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCSyEqVyCSlSK_V_wgDFrVOWX8wTxX0Uo4&callback=initMap&libraries=&v=weekly"
+async
+></script>
+</body>
+</html>
